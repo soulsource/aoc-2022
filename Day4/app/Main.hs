@@ -1,7 +1,7 @@
 module Main (main) where
 
-import System.Environment
-import qualified Data.Bifunctor
+import System.Environment ( getArgs )
+import Data.Bifunctor ( Bifunctor(bimap, first) )
 
 main :: IO ()
 main = getArgs >>= readFile . head >>= print . solveDay4
@@ -21,7 +21,7 @@ splitAtChar :: Char -> String -> (String, String)
 splitAtChar c x = splitAtCharacter c ("",x)
 
 splitAtCharacter :: Char -> (String, String) -> (String, String)
-splitAtCharacter c (a, b:bs) = if b == c then (a,bs) else splitAtCharacter c (a++[b], bs)
+splitAtCharacter c (a, b:bs) = if b == c then (a,bs) else Data.Bifunctor.first (b:) (splitAtCharacter c (a, bs))
 splitAtCharacter c (a,[]) = (a,[])
 
 parseRange :: String -> CleaningCells
