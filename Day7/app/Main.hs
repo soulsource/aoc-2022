@@ -49,12 +49,35 @@ stripTrailingNewline [] = []
 stripTrailingNewline (a:as) = a:stripTrailingNewline as
 
 buildDirectoryFromCommands :: [Command] -> Directory
-buildDirectoryFromCommands = error "unimplemented"
+buildDirectoryFromCommands = snd . foldl applyCommandToDirectory (Path [], Directory "/" [] [])
 
 applyCommandToDirectory :: (Path, Directory) -> Command -> (Path, Directory)
-applyCommandToDirectory (oldPath, oldDir) CdRoot = (Path [], oldDir)
-applyCommandToDirectory (oldPath, oldDir) CdUp = (fst . popDirectory $ oldPath, oldDir)
--- todo: other arms
+applyCommandToDirectory (oldPath, dir) CdRoot = (Path [], dir)
+applyCommandToDirectory (oldPath, dir) CdUp = (fst . popDirectory $ oldPath, dir)
+applyCommandToDirectory (oldPath, dir) (Cd subDir) = (pushDirectory oldPath subDir, dir)
+applyCommandToDirectory (path, oldDir) (Ls contents) = (path, addContentsToDirectory path oldDir $ parseLsOutput contents)
+
+addContentsToDirectory :: Path -> Directory -> ([Directory], [File]) -> Directory
+addContentsToDirectory (Path []) (Directory name dirs files) (newDirs, newFiles) = Directory name (newDirs ++ dirs) (newFiles ++ files)
+addContentsToDirectory (Path p) (Directory name dirs files) n = Directory name (addContentsToDirectory (Path $ init p) subDir n:otherSubDirs) files
+    where (subDir, otherSubDirs) = getSubDir $ break (\(Directory name _ _) -> name == lp) dirs
+          getSubDir (a, b:bs) = (b, a ++ bs)
+          getSubDir (a, []) = error "Cannot descend into an unknown subdirectory."
+          lp = last p
+
+
+data DirOrFile = Dir Directory | Fil File
+parseLsOutput :: String -> ([Directory], [File])
+parseLsOutput = foldl appendLsLine ([],[]) . map parseLsLine . lines
+    where appendLsLine (dirs, files) (Dir d) = (d:dirs, files)
+          appendLsLine (dirs, files) (Fil f) = (dirs, f:files)
+
+parseLsLine :: String -> DirOrFile
+parseLsLine ('d':'i':'r':' ':dn) = Dir $ Directory dn [] []
+parseLsLine fileSizeAndName = Fil $ File nn (read sz)
+    where (sz,nn) = verifyWordCount $ words fileSizeAndName
+          verifyWordCount [a,b] = (a,b) -- could use literal [sz,nn] pattern instead, but that doesn't give a nice error message. This does.
+          verifyWordCount _ = error "Wrong number of words in ls file entry."
 
 solveDay7Parts :: Directory -> (Int, Int)
 solveDay7Parts = error "unimplemented"
