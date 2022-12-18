@@ -27,7 +27,8 @@ parseDay7Input :: String -> Directory
 parseDay7Input = buildDirectoryFromCommands . parseCommands
 
 parseCommands :: String -> [Command]
-parseCommands = map parseCommand . splitAtDollarSign
+parseCommands = map parseCommand . skipEmptyLines . splitAtDollarSign
+    where skipEmptyLines = filter (/= "") -- splitting at all dollar signs can yield empty commands, for instance if the file starts with $.
 
 splitAtDollarSign :: String -> [String]
 splitAtDollarSign [] = []
@@ -80,4 +81,38 @@ parseLsLine fileSizeAndName = Fil $ File nn (read sz)
           verifyWordCount _ = error "Wrong number of words in ls file entry."
 
 solveDay7Parts :: Directory -> (Int, Int)
-solveDay7Parts = error "unimplemented"
+solveDay7Parts d = (solveDay7Part1 d, solveDay7Part2 d)
+
+data DirWithAccumulatedSize = DirWithAccumulatedSize String Int [DirWithAccumulatedSize]
+newtype DirWithAcuumulatedSizeFlat = DirWithAcuumulatedSizeFlat (String, Int)
+
+solveDay7Part1 :: Directory -> Int
+solveDay7Part1 = 
+    sum
+     . map (\(DirWithAcuumulatedSizeFlat (_,s)) -> s)
+     . filter (\(DirWithAcuumulatedSizeFlat (n,s)) -> s <= 100000)
+     . flattenDirWithAccumulatedSize 
+     . convertToAccumulatedSizeTree
+
+convertToAccumulatedSizeTree :: Directory -> DirWithAccumulatedSize
+convertToAccumulatedSizeTree (Directory name subdirs files) = 
+    DirWithAccumulatedSize name (sum subdirSizes + sum fileSizes) sizedSubdirs
+    where sizedSubdirs = map convertToAccumulatedSizeTree subdirs
+          fileSizes = map (\(File _ size) -> size) files
+          subdirSizes = map (\(DirWithAccumulatedSize _ size _) -> size) sizedSubdirs
+
+flattenDirWithAccumulatedSize :: DirWithAccumulatedSize -> [DirWithAcuumulatedSizeFlat]
+flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size []) = [DirWithAcuumulatedSizeFlat (name, size)]
+flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size (sd:sds)) = flattenDirWithAccumulatedSize sd ++ flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size sds)
+
+solveDay7Part2 :: Directory -> Int
+solveDay7Part2 d = (\(DirWithAcuumulatedSizeFlat (_,s)) -> s) $ smallestDirLargerThan requiredSpace flattenedDirs
+    where flattenedDirs = flattenDirWithAccumulatedSize accumulatedSizeTree
+          accumulatedSizeTree = convertToAccumulatedSizeTree d
+          requiredSpace = rootSize accumulatedSizeTree - (70000000 - 30000000)
+          rootSize (DirWithAccumulatedSize _ s _) = s
+
+smallestDirLargerThan :: Int -> [DirWithAcuumulatedSizeFlat] -> DirWithAcuumulatedSizeFlat
+smallestDirLargerThan m = foldl1 smallestSize . filter ((m <=) . si) -- too lazy to handle empty list case -> foldl1
+    where smallestSize d1 d2 = if si d1 < si d2 then d1 else d2
+          si (DirWithAcuumulatedSizeFlat (_,s)) = s
