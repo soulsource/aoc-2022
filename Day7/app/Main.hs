@@ -99,20 +99,27 @@ convertToAccumulatedSizeTree (Directory name subdirs files) =
     DirWithAccumulatedSize name (sum subdirSizes + sum fileSizes) sizedSubdirs
     where sizedSubdirs = map convertToAccumulatedSizeTree subdirs
           fileSizes = map (\(File _ size) -> size) files
-          subdirSizes = map (\(DirWithAccumulatedSize _ size _) -> size) sizedSubdirs
+          subdirSizes = map getSize sizedSubdirs
 
 flattenDirWithAccumulatedSize :: DirWithAccumulatedSize -> [DirWithAcuumulatedSizeFlat]
 flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size []) = [DirWithAcuumulatedSizeFlat (name, size)]
 flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size (sd:sds)) = flattenDirWithAccumulatedSize sd ++ flattenDirWithAccumulatedSize (DirWithAccumulatedSize name size sds)
 
 solveDay7Part2 :: Directory -> Int
-solveDay7Part2 d = (\(DirWithAcuumulatedSizeFlat (_,s)) -> s) $ smallestDirLargerThan requiredSpace flattenedDirs
+solveDay7Part2 d = getSize $ smallestDirLargerThan requiredSpace flattenedDirs
     where flattenedDirs = flattenDirWithAccumulatedSize accumulatedSizeTree
           accumulatedSizeTree = convertToAccumulatedSizeTree d
-          requiredSpace = rootSize accumulatedSizeTree - (70000000 - 30000000)
-          rootSize (DirWithAccumulatedSize _ s _) = s
+          requiredSpace = getSize accumulatedSizeTree - (70000000 - 30000000)
 
 smallestDirLargerThan :: Int -> [DirWithAcuumulatedSizeFlat] -> DirWithAcuumulatedSizeFlat
-smallestDirLargerThan m = foldl1 smallestSize . filter ((m <=) . si) -- too lazy to handle empty list case -> foldl1
-    where smallestSize d1 d2 = if si d1 < si d2 then d1 else d2
-          si (DirWithAcuumulatedSizeFlat (_,s)) = s
+smallestDirLargerThan m = foldl1 smallestSize . filter ((m <=) . getSize) -- too lazy to handle empty list case -> foldl1
+    where smallestSize d1 d2 = if getSize d1 < getSize d2 then d1 else d2
+
+class DirSize a where
+    getSize :: a -> Int
+
+instance DirSize DirWithAcuumulatedSizeFlat where
+    getSize (DirWithAcuumulatedSizeFlat (_,s)) = s
+
+instance DirSize DirWithAccumulatedSize where
+    getSize (DirWithAccumulatedSize _ s _) = s
