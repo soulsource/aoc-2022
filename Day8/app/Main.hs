@@ -1,6 +1,8 @@
 module Main (main) where
 
 import System.Environment ( getArgs )
+import Data.Bifunctor (first)
+import qualified Data.Set as Set
 
 main :: IO ()
 main = getArgs >>= readFile . head >>= print . solveDay8
@@ -38,4 +40,57 @@ parseDay8Input :: String -> Maybe Day8Input
 parseDay8Input = (=<<) validateDay8Input . mapM (mapM heightFromChar) . lines
 
 solveDay8Parts :: Day8Input -> (Int, Int)
-solveDay8Parts = undefined
+solveDay8Parts i = (solveDay8Part1 i, solveDay8Part2 i)
+
+solveDay8Part1 :: Day8Input -> Int
+solveDay8Part1 = countVisibleTrees . identifyTrees
+
+countVisibleTrees :: ForestWithIds -> Int
+countVisibleTrees = length . getVisibleTrees 
+
+identifyTrees :: Day8Input -> ForestWithIds
+identifyTrees (Day8Input i) = ForestWithIds $ identifyTreesWorker i (TreeId 0)
+    where identifyTreesWorker [] _ = []
+          identifyTreesWorker (l:ls) id = (\(identifiedLine, firstIdInNextLine) -> identifiedLine:identifyTreesWorker ls firstIdInNextLine) $ identifyTreesInLine l id
+          identifyTreesInLine [] id = ([], id)
+          identifyTreesInLine (t:ts) id = Data.Bifunctor.first (TreeWithId (id, t) :) $ identifyTreesInLine ts (nextTreeId id)
+          
+
+getVisibleTrees :: ForestWithIds -> Set.Set TreeId
+getVisibleTrees s = getVisibleTreesFromSide firstSide
+                     $ getVisibleTreesFromSide secondSide
+                     $ getVisibleTreesFromSide thirdSide
+                     $ getVisibleTreesFromSide fourthSide Set.empty
+                     where firstSide = s
+                           secondSide = rotateForest firstSide
+                           thirdSide = rotateForest secondSide
+                           fourthSide = rotateForest thirdSide
+
+rotateForest :: ForestWithIds -> ForestWithIds
+rotateForest (ForestWithIds l) = ForestWithIds $ rotateRectangularList l
+    where rotateRectangularList [l] = reverse $ map return l
+          rotateRectangularList (l:ls) = addColumnL (reverse l) (rotateRectangularList ls)
+          addColumnL (i:is) (l:ls) = (i:l):addColumnL is ls
+          addColumnL [] [] = []
+
+getVisibleTreesFromSide :: ForestWithIds -> Set.Set TreeId -> Set.Set TreeId
+getVisibleTreesFromSide (ForestWithIds ls) ids = foldl getVisibleTreesInLine ids ls
+
+
+getVisibleTreesInLine :: Set.Set TreeId -> [TreeWithId] -> Set.Set TreeId
+getVisibleTreesInLine ids = fst . foldl addIfHigher (ids, Nothing)
+    where addIfHigher (oldSet, Nothing) (TreeWithId (id, height)) = (Set.insert id oldSet, Just height)
+          addIfHigher (oldSet, Just oldHeight) (TreeWithId (id, height)) = 
+            if height > oldHeight then (Set.insert id oldSet, Just height) else (oldSet, Just oldHeight)
+
+newtype TreeId = TreeId Int deriving (Ord, Eq)
+
+nextTreeId :: TreeId -> TreeId
+nextTreeId (TreeId i) = TreeId (i+1)
+
+newtype TreeWithId = TreeWithId (TreeId, Height)
+newtype ForestWithIds = ForestWithIds [[TreeWithId]]
+
+
+solveDay8Part2 :: Day8Input -> Int
+solveDay8Part2 x = undefined
