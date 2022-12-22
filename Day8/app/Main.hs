@@ -2,6 +2,7 @@ module Main (main) where
 
 import System.Environment ( getArgs )
 import Data.Bifunctor (first)
+import Data.List (transpose)
 import qualified Data.Set as Set
 
 main :: IO ()
@@ -70,16 +71,10 @@ rotateForestLeft :: ForestWithIds -> ForestWithIds
 rotateForestLeft (ForestWithIds l) = ForestWithIds $ rotateRectangularListLeft l
 
 rotateRectangularListLeft :: [[a]] -> [[a]]
-rotateRectangularListLeft = reverse . transposeRectangularList
+rotateRectangularListLeft = reverse . transpose
 
 rotateRectangularListRight :: [[a]] -> [[a]]
-rotateRectangularListRight = transposeRectangularList . reverse
-
-transposeRectangularList :: [[a]] -> [[a]]
-transposeRectangularList [l] = map return l
-transposeRectangularList (l:ls) = addColumnL l (transposeRectangularList ls)
-    where addColumnL (i:is) (l:ls) = (i:l):addColumnL is ls
-          addColumnL [] [] = []
+rotateRectangularListRight = transpose . reverse
 
 getVisibleTreesFromSide :: ForestWithIds -> Set.Set TreeId -> Set.Set TreeId
 getVisibleTreesFromSide (ForestWithIds ls) ids = foldl getVisibleTreesInLine ids ls
@@ -101,8 +96,49 @@ newtype ForestWithIds = ForestWithIds [[TreeWithId]]
 
 
 solveDay8Part2 :: Day8Input -> Int
-solveDay8Part2 x = 0
+solveDay8Part2 = maximum . map maximum . scenicScores
 
--- Well, part 2 sucks. But we can do a scanl to transform each tree in each of the 4 sides to its viewing distance.
+scenicScores :: Day8Input -> [[Int]]
+scenicScores x = mulElements (firstSide x) $ mulElements (secondSide x) $ mulElements (thirdSide x) (fourthSide x)
+    where mulElements = zipWith (zipWith (*))
+          firstSide (Day8Input hs) = scenicScoreFromLeft hs
+          secondSide (Day8Input hs) = rotateRectangularListLeft $ scenicScoreFromLeft $ rotateRectangularListRight hs
+          thirdSide (Day8Input hs) = rotateRectangularListLeft $ rotateRectangularListLeft $ scenicScoreFromLeft $ rotateRectangularListRight $ rotateRectangularListRight hs
+          fourthSide (Day8Input hs) = rotateRectangularListRight $ scenicScoreFromLeft $ rotateRectangularListLeft hs
+
+
+-- Well, that sucks. Part 1 result is unusable for part 2... But we can do a scanl to transform each tree in each of the 4 sides to its viewing distance.
 -- Or, probably it's easier to just write the function instead of using scanl.
 -- And once that's döner, we can rotate everything back to the original orientation, multiply up and boom, partay!
+
+newtype DistanceSinceHeight = DistanceSinceHeight (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int)
+
+getDistanceSinceHeight :: DistanceSinceHeight -> Height -> Int
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Zero = ze
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) One = on
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Two = tw
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Three = th
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Four = fo
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Five = fi
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Six = si
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Seven = se
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Eight = ei
+getDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Nine = ni
+
+stepDistanceSinceHeight :: DistanceSinceHeight -> Height -> DistanceSinceHeight
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Zero = DistanceSinceHeight (1,on+1,tw+1,th+1,fo+1,fi+1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) One = DistanceSinceHeight (1,1,tw+1,th+1,fo+1,fi+1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Two = DistanceSinceHeight (1,1,1,th+1,fo+1,fi+1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Three = DistanceSinceHeight (1,1,1,1,fo+1,fi+1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Four = DistanceSinceHeight (1,1,1,1,1,fi+1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Five = DistanceSinceHeight (1,1,1,1,1,1,si+1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Six = DistanceSinceHeight (1,1,1,1,1,1,1,se+1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Seven = DistanceSinceHeight (1,1,1,1,1,1,1,1,ei+1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Eight = DistanceSinceHeight (1,1,1,1,1,1,1,1,1,ni+1)
+stepDistanceSinceHeight (DistanceSinceHeight (ze,on,tw,th,fo,fi,si,se,ei,ni)) Nine = DistanceSinceHeight (1,1,1,1,1,1,1,1,1,1)
+
+scenicScoreFromLeft :: [[Height]] -> [[Int]]
+scenicScoreFromLeft = map scenicScoreFromLeftForRow
+scenicScoreFromLeftForRow :: [Height] -> [Int]
+scenicScoreFromLeftForRow = map fst . tail . scanl scenicScanner (-1, DistanceSinceHeight (0,0,0,0,0,0,0,0,0,0))
+    where scenicScanner (_, d) h = (getDistanceSinceHeight d h, stepDistanceSinceHeight d h)
