@@ -62,15 +62,23 @@ getVisibleTrees s = getVisibleTreesFromSide firstSide
                      $ getVisibleTreesFromSide thirdSide
                      $ getVisibleTreesFromSide fourthSide Set.empty
                      where firstSide = s
-                           secondSide = rotateForest firstSide
-                           thirdSide = rotateForest secondSide
-                           fourthSide = rotateForest thirdSide
+                           secondSide = rotateForestLeft firstSide
+                           thirdSide = rotateForestLeft secondSide
+                           fourthSide = rotateForestLeft thirdSide
 
-rotateForest :: ForestWithIds -> ForestWithIds
-rotateForest (ForestWithIds l) = ForestWithIds $ rotateRectangularList l
-    where rotateRectangularList [l] = reverse $ map return l
-          rotateRectangularList (l:ls) = addColumnL (reverse l) (rotateRectangularList ls)
-          addColumnL (i:is) (l:ls) = (i:l):addColumnL is ls
+rotateForestLeft :: ForestWithIds -> ForestWithIds
+rotateForestLeft (ForestWithIds l) = ForestWithIds $ rotateRectangularListLeft l
+
+rotateRectangularListLeft :: [[a]] -> [[a]]
+rotateRectangularListLeft = reverse . transposeRectangularList
+
+rotateRectangularListRight :: [[a]] -> [[a]]
+rotateRectangularListRight = transposeRectangularList . reverse
+
+transposeRectangularList :: [[a]] -> [[a]]
+transposeRectangularList [l] = map return l
+transposeRectangularList (l:ls) = addColumnL l (transposeRectangularList ls)
+    where addColumnL (i:is) (l:ls) = (i:l):addColumnL is ls
           addColumnL [] [] = []
 
 getVisibleTreesFromSide :: ForestWithIds -> Set.Set TreeId -> Set.Set TreeId
@@ -93,4 +101,8 @@ newtype ForestWithIds = ForestWithIds [[TreeWithId]]
 
 
 solveDay8Part2 :: Day8Input -> Int
-solveDay8Part2 x = undefined
+solveDay8Part2 x = 0
+
+-- Well, part 2 sucks. But we can do a scanl to transform each tree in each of the 4 sides to its viewing distance.
+-- Or, probably it's easier to just write the function instead of using scanl.
+-- And once that's döner, we can rotate everything back to the original orientation, multiply up and boom, partay!
