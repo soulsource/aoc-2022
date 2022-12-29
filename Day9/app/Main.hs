@@ -2,11 +2,10 @@ module Main (main) where
 
 import System.Environment ( getArgs )
 import Text.Read (readMaybe)
-import Data.Bifunctor (bimap)
-import Data.Maybe (fromMaybe)
+import Data.Bifunctor (bimap, first)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Control.Monad.Zip (MonadZip(mzip))
-import Control.Exception (assert)
 
 main :: IO ()
 main = getArgs >>= readFile . head >>= print . solveDay9
@@ -20,7 +19,8 @@ formatDay9Result (Just (p1, p2)) = "Part 1: " ++ show p1 ++ ", Part 2: " ++ show
 
 -- Imho it's stupid that Haskell by default imports Right and Left.
 -- Also, that there's no dedicated Result type, and rather Either is used.
-data Direction = MoveUp | MoveRight | MoveDown | MoveLeft
+data Direction = MoveUp | MoveRight | MoveDown | MoveLeft -- part 1 only uses these directions.
+               | MoveUpRight | MoveUpLeft | MoveDownRight | MoveDownLeft -- these four directions are needed for part 2.
 
 data MultiCommand = MultiCommand Direction Word -- using Word here gives a "is >= 0" check in readMaybe for free (I think).
 newtype Command = Command Direction
@@ -60,8 +60,10 @@ solveDay9Part1 = length . Set.fromList . tailPositions . ropePositions -- buildi
 
 tailPositions :: [RopePosition] -> [AbsoluteTail]
 tailPositions = map tailPosition
-    where tailPosition (RopePosition (AbsoluteHead (x,y)) (RelativeTail (dx, dy))) = AbsoluteTail (applyOffset x dx, applyOffset y dy)
-          applyOffset i MinusOne = i-1
+
+tailPosition :: RopePosition -> AbsoluteTail
+tailPosition (RopePosition (AbsoluteHead (x,y)) (RelativeTail (dx, dy))) = AbsoluteTail (applyOffset x dx, applyOffset y dy)
+    where applyOffset i MinusOne = i-1
           applyOffset i Zero = i
           applyOffset i PlusOne = i+1
 
@@ -77,10 +79,15 @@ virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveUp) = VirtualRelativeTa
 virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveDown) = VirtualRelativeTail (virtualFromRelativeOffset x, incrementOffset y)
 virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveRight) = VirtualRelativeTail (decrementOffset x, virtualFromRelativeOffset y)
 virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveLeft) = VirtualRelativeTail (incrementOffset x, virtualFromRelativeOffset y)
+-- The variants below are used for part 2.
+virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveUpRight) = VirtualRelativeTail (decrementOffset x, decrementOffset y)
+virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveUpLeft) = VirtualRelativeTail (incrementOffset x, decrementOffset y)
+virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveDownRight) = VirtualRelativeTail (decrementOffset x, incrementOffset y)
+virtualizeRelativeTail (RelativeTail (x,y)) (Command MoveDownLeft) = VirtualRelativeTail (incrementOffset x, incrementOffset y)
 
--- Makes the tail realize it's still connected to the head.
-realizeVirtualTail :: VirtualRelativeTail -> RelativeTail
-realizeVirtualTail v = fromMaybe (realizeVirtualTailByMoving v) (tryRealizeVirtualTailWithoutMoving v)
+-- Makes the tail realize it's still connected to the head. Second part of output is used in Part2 of the riddle. Part1 only needs the RelativeTail.
+realizeVirtualTail :: VirtualRelativeTail -> (RelativeTail, Maybe Command)
+realizeVirtualTail v = maybe (realizeVirtualTailByMoving v) (\x -> (x, Nothing)) (tryRealizeVirtualTailWithoutMoving v)
 
 tryRealizeVirtualTailWithoutMoving :: VirtualRelativeTail -> Maybe RelativeTail
 tryRealizeVirtualTailWithoutMoving (VirtualRelativeTail (x,y)) = RelativeTail <$> mzip (tryRealizeOffsetWithoutMoving x) (tryRealizeOffsetWithoutMoving y)
@@ -91,8 +98,21 @@ tryRealizeOffsetWithoutMoving VZero = Just Zero
 tryRealizeOffsetWithoutMoving VPlusOne = Just PlusOne
 tryRealizeOffsetWithoutMoving _ = Nothing
 
-realizeVirtualTailByMoving :: VirtualRelativeTail -> RelativeTail
-realizeVirtualTailByMoving (VirtualRelativeTail (x,y)) = RelativeTail (moveOffsetTowardsZero x, moveOffsetTowardsZero y)
+-- as with realizeVirtualTail: The second field in the return value is only used by Part2 of the puzzle.
+realizeVirtualTailByMoving :: VirtualRelativeTail -> (RelativeTail, Maybe Command)
+realizeVirtualTailByMoving (VirtualRelativeTail (x,y)) = (RelativeTail (moveOffsetTowardsZero x, moveOffsetTowardsZero y), toCommand (x,y))
+    where toCommand (x,y) | isNegative x && isNegative y = Just $ Command MoveUpRight -- both negative
+          toCommand (x,VZero) | isNegative x = Just $ Command MoveRight               -- x negative, y zero
+          toCommand (x,y) | isNegative x = Just $ Command MoveDownRight               -- x negative, y positive
+          toCommand (VZero,y) | isNegative y = Just $ Command MoveUp                  -- x zero, y negative
+          toCommand (VZero,VZero) = Nothing                                           -- x zero, y zero (should be unreachable, but well, this is a top level function, so better have it here)
+          toCommand (VZero,y) = Just $ Command MoveDown                               -- x zero, y positive
+          toCommand (x,y) | isNegative y = Just $ Command MoveUpLeft                  -- x positive, y negative
+          toCommand (x,VZero) = Just $ Command MoveLeft                               -- x positive, y zero
+          toCommand (x,y) = Just $ Command MoveDownLeft                               -- x positive, y positive
+          isNegative VMinusOne = True
+          isNegative VMinusTwo = True
+          isNegative _ = False
 
 moveOffsetTowardsZero :: VirtualRelativeOffset -> AllowedRelativeOffset
 moveOffsetTowardsZero VMinusTwo = MinusOne
@@ -121,9 +141,33 @@ applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveUp) = AbsoluteHead 
 applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveDown) = AbsoluteHead (x,y-1)
 applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveRight) = AbsoluteHead (x+1,y)
 applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveLeft) = AbsoluteHead (x-1,y)
+-- The variants below are used for part 2.
+applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveUpRight) = AbsoluteHead (x+1,y+1)
+applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveUpLeft) = AbsoluteHead (x-1,y+1)
+applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveDownRight) = AbsoluteHead (x+1,y-1)
+applyCommandToAbsoluteHead (AbsoluteHead (x,y)) (Command MoveDownLeft) = AbsoluteHead (x-1,y-1)
 
 applyCommand :: RopePosition -> Command -> RopePosition
-applyCommand (RopePosition head tail) c = RopePosition (applyCommandToAbsoluteHead head c) (realizeVirtualTail $ virtualizeRelativeTail tail c)
+applyCommand (RopePosition head tail) c = RopePosition (applyCommandToAbsoluteHead head c) (fst $ realizeVirtualTail $ virtualizeRelativeTail tail c)
+
+
+-- This can actually be resolved in a very stupid - erm - I mean smart way. A rope of length 9 is just the same as 9 ropes of length 1 bound together.
+-- Sooo, what we have to do is to chain 9 ropes by converting the movement of each tail back to a command for the next head.
+-- This means we need to extend the Command type with diagonal movement though.
+
+-- Note to self: To keep this safe, extend the return type of realizeVirtualTail. Let it return a tuple (RelativeTail, Maybe Command).
+--               That way, the data needed for the next rope segment can be extracted at the point where it doesn't
+--               require the introduction of partial functions.
+--               This also means extending the applyCommand function signature, so that instead of RopePosition it works on (RopePosition, Maybe Command).
+--               Or, a custom applyCommandPart2 function that does that.
+
+-- the final flow will be a chain of [Command] -> [Command] mappings, only the last one will be - well, the last one will be solvePart1 :D
 
 solveDay9Part2 :: [Command] -> Int
-solveDay9Part2 = undefined
+solveDay9Part2 = solveDay9Part1 . last . take 9 . iterate moveRopePart -- 9, because iterate also returns the unmodified input as first element.
+
+moveRopePart :: [Command] -> [Command]
+moveRopePart = mapMaybe snd . scanl applyCommandPart2 (startingRopePosition, Nothing)
+
+applyCommandPart2 :: (RopePosition, Maybe Command) -> Command -> (RopePosition, Maybe Command)
+applyCommandPart2 (RopePosition head tail, _) c = first (RopePosition (applyCommandToAbsoluteHead head c)) $ realizeVirtualTail $ virtualizeRelativeTail tail c
