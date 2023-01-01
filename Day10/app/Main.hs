@@ -33,6 +33,19 @@ newtype RegisterValue = RegisterValue Int
 newtype SignalStrength = SignalStrength Int
 newtype CpuState = CpuState (CycleCount, RegisterValue)
 
+newtype DeltaCpuStates = DeltaCpuStates [CpuState]
+unDeltaCpuStates :: DeltaCpuStates -> [CpuState]
+unDeltaCpuStates (DeltaCpuStates d) = d
+
+initialCpuState :: CpuState
+initialCpuState = CpuState (CycleCount 1, RegisterValue 1)
+
+getCycleCount :: CpuState -> CycleCount
+getCycleCount (CpuState (c,_)) = c
+
+nextCycle :: CycleCount -> CycleCount
+nextCycle (CycleCount c) = CycleCount (c+1)
+
 unSignalStrength :: SignalStrength -> Int
 unSignalStrength (SignalStrength a) = a
 
@@ -45,23 +58,49 @@ getRegisterValue (CpuState (_,r)) = r
 solveDay9Part1 :: [Command] -> Int 
 solveDay9Part1 = getSumOfRelevantSignalStrengths . cpuStates
 
-cpuStates :: [Command] -> [CpuState] -- this could be solved using scanl, but the problem is easier to solve using a dedicated worker function.
-cpuStates = cpuStatesWorker (CpuState (CycleCount 1, RegisterValue 1)) 
+cpuStates :: [Command] -> DeltaCpuStates -- this could be solved using scanl, but the problem is easier to solve using a dedicated worker function.
+cpuStates = cpuStatesWorker initialCpuState
 
-cpuStatesWorker :: CpuState -> [Command] -> [CpuState]
-cpuStatesWorker c [] = return c
+cpuStatesWorker :: CpuState -> [Command] -> DeltaCpuStates
+cpuStatesWorker c [] = DeltaCpuStates $ return c
 cpuStatesWorker (CpuState (CycleCount c, r)) (NoOp:cs) = cpuStatesWorker (CpuState (CycleCount (c+1), r)) cs
-cpuStatesWorker (CpuState (CycleCount c, RegisterValue r)) ((AddX x):cs) = newState:cpuStatesWorker newState cs
+cpuStatesWorker (CpuState (CycleCount c, RegisterValue r)) ((AddX x):cs) = DeltaCpuStates $ newState:unDeltaCpuStates (cpuStatesWorker newState cs)
     where newState = CpuState (CycleCount (c+2), RegisterValue (r+x))
 
-getSumOfRelevantSignalStrengths :: [CpuState] -> Int
+getSumOfRelevantSignalStrengths :: DeltaCpuStates -> Int
 getSumOfRelevantSignalStrengths s = sum $ map (unSignalStrength . getSignalStrengthAtCycleCount s . CycleCount) $ take 6 $ iterate (+40) 20
 
-getSignalStrengthAtCycleCount :: [CpuState] -> CycleCount -> SignalStrength
+getSignalStrengthAtCycleCount :: DeltaCpuStates -> CycleCount -> SignalStrength
 getSignalStrengthAtCycleCount s c = signalStrength c $ getRegisterAtCycleCount s c
 
-getRegisterAtCycleCount :: [CpuState] -> CycleCount -> RegisterValue
-getRegisterAtCycleCount s c = getRegisterValue $ last $ takeWhile (\(CpuState (cc,_)) -> cc <= c) s
+getRegisterAtCycleCount :: DeltaCpuStates -> CycleCount -> RegisterValue
+getRegisterAtCycleCount s c = getRegisterValue $ last $ takeWhile (\(CpuState (cc,_)) -> cc <= c) $ unDeltaCpuStates s
+
+-- Part 2 is basically: for each cycle, check if RegisterValue is CycleCount-1, CycleCount, or CycleCount+1, and if yes, print '#', otherwise print '.'.
+
+newtype ScreenWidth = ScreenWidth Int
 
 solveDay9Part2 :: [Command] -> String
-solveDay9Part2 c = "Not yet done, sorry.\n"
+solveDay9Part2 = addNewlines (ScreenWidth 40) . take 240 . map (toPixel (ScreenWidth 40)) . expandCycles . cpuStates
+
+expandCycles :: DeltaCpuStates -> [CpuState]
+expandCycles (DeltaCpuStates c) = expandCyclesWorker c $ CycleCount 1
+    where expandCyclesWorker (c1:cs) i | getCycleCount c1 > i = CpuState (i,RegisterValue 1):expandCyclesWorker (c1:cs) (nextCycle i) -- first few steps
+          -- If we have still at least two states, we have to check if the current is still good, if not we have to advance.
+          expandCyclesWorker (c1:c2:cs) i | getCycleCount c2 > i = CpuState (i,getRegisterValue c1):expandCyclesWorker (c1:c2:cs) (nextCycle i)
+          expandCyclesWorker (c1:c2:cs) i = expandCyclesWorker (c2:cs) i
+          -- If we are at the end, repeat last value infinitely.
+          expandCyclesWorker (c:_) i = CpuState (i, getRegisterValue c):expandCyclesWorker [c] (nextCycle i) 
+
+
+toPixel :: ScreenWidth -> CpuState -> Char
+toPixel (ScreenWidth w) (CpuState (CycleCount c, RegisterValue r)) = if isBrightPixel then '#' else '.'
+    where isBrightPixel = abs (((c-1) `mod` w)-r) <=1 -- c-1 because pixels start at 0, cycles start at 1... Because of course they do.
+
+addNewlines :: ScreenWidth -> String -> String
+addNewlines (ScreenWidth i) = addNewLinesWorker i 0
+    where addNewLinesWorker every current (c:cs) | current /= 0 && current `mod` every == 0 = '\n':c:addNewLinesWorker every (current + 1) cs
+          addNewLinesWorker every current (c:cs) = c:addNewLinesWorker every (current + 1) cs
+          addNewLinesWorker every current [] = "\n"
+
+
