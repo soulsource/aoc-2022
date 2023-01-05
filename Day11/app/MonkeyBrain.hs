@@ -136,6 +136,7 @@ tryMakeBinaryExpression v (StringWithMatchingBrackets s) = mapM (makeBinaryExpre
                   fLpRmBoWorker f ((0,_):ss) = fLpRmBoWorker f ss -- first character cannot be a binary operator.
                   fLpRmBoWorker f [] = fst <$> f
                   fLpRmBoWorker f ((i,c):(j,_):ss) | isOperator c && hasSameOrLowerPrecedence (snd <$> f) c && j==i+1 = fLpRmBoWorker (Just (i,c)) ss -- skip the first character right after operator. If it's another operator, it's unary.
+                  fLpRmBoWorker f ((i,c):(j,_):ss) | isOperator c && j==i+1 = fLpRmBoWorker f ss
                   fLpRmBoWorker f ((i,c):ss) | isOperator c && hasSameOrLowerPrecedence (snd <$> f) c = fLpRmBoWorker (Just (i,c)) ss
                   fLpRmBoWorker f (s:ss) = fLpRmBoWorker f ss -- no operator means just go to next char.
 
@@ -145,9 +146,10 @@ tryMakeBinaryExpression v (StringWithMatchingBrackets s) = mapM (makeBinaryExpre
                   hasSameOrLowerPrecedence :: Maybe Char -> Char -> Bool -- this is not typesafe, but well, it's a local helper, so it's probably fine...
                   hasSameOrLowerPrecedence Nothing _ = True
                   hasSameOrLowerPrecedence (Just '/') _ = True
-                  hasSameOrLowerPrecedence (Just '*') c = c == '*' || c == '-' || c == '+'
+                  hasSameOrLowerPrecedence (Just '*') _ = True
                   hasSameOrLowerPrecedence (Just '-') c = c == '-' || c == '+'
-                  hasSameOrLowerPrecedence (Just '+') c = c == '+'
+                  hasSameOrLowerPrecedence (Just '+') c = c == '-' || c == '+'
+
 
 
 --tries to make neg expression
