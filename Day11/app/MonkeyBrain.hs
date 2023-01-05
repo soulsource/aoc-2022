@@ -1,10 +1,26 @@
-module MonkeyBrain (evaluateIntExpression, evaluateFracExpression, tryParseExpression, Expression, VariableNameValidator (..), VariableValues (..), Variable (..), ExpressionParseError(..)) where
+module MonkeyBrain (
+    evaluateIntExpression,
+    evaluateFracExpression,
+    evaluateExpression,
+    tryParseExpression,
+    Expression,
+    VariableNameValidator (..),
+    VariableValues (..),
+    Variable (..),
+    ExpressionParseError(..),
+    AddFn (..),
+    SubFn (..),
+    MulFn (..),
+    DivFn (..),
+    NegFn (..)
+) where
 
 import Control.Exception (assert)
 import Data.Either (isRight)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Text.Read (readMaybe)
+import Control.Monad.Zip (MonadZip(mzip))
 
 newtype VariableNameValidator = VariableNameValidator (String -> Bool)
 
@@ -19,18 +35,33 @@ data Expression a = Add (Expression a) (Expression a)
 
 newtype Variable = Variable String deriving (Eq, Show)
 
-newtype VariableValues = VariableValues [(Variable, Int)] -- List, because, let's be honest: AOC Day11 just has one variable.
+newtype VariableValues a = VariableValues [(Variable, a)] -- List, because, let's be honest: AOC Day11 just has one variable.
 
 -- Evaluates the given expression with the supplied set of variables. Returns Nothing if not all required variables have a value.
-evaluateIntExpression :: (Integral a) => Expression a -> VariableValues -> Maybe Int
-evaluateIntExpression = undefined
+evaluateIntExpression :: (Integral a) => Expression a -> VariableValues a -> Maybe a
+evaluateIntExpression = evaluateExpression (AddFn (+)) (SubFn (-)) (MulFn (*)) (DivFn quot) (NegFn negate)
 
-evaluateFracExpression :: (Fractional a) => Expression a -> VariableValues -> Maybe Int
-evaluateFracExpression = undefined
+evaluateFracExpression :: (Fractional a) => Expression a -> VariableValues a -> Maybe a
+evaluateFracExpression = evaluateExpression (AddFn (+)) (SubFn (-)) (MulFn (*)) (DivFn (/)) (NegFn negate)
+
+newtype AddFn a = AddFn (a -> a -> a)
+newtype SubFn a = SubFn (a -> a -> a)
+newtype MulFn a = MulFn (a -> a -> a)
+newtype DivFn a = DivFn (a -> a -> a)
+newtype NegFn a = NegFn (a -> a)
+
+evaluateExpression :: AddFn a -> SubFn a -> MulFn a -> DivFn a -> NegFn a -> Expression a -> VariableValues a -> Maybe a
+evaluateExpression (AddFn add) s m d n (Add e1 e2) v = uncurry add <$> mzip (evaluateExpression (AddFn add) s m d n e1 v) (evaluateExpression (AddFn add) s m d n e2 v)
+evaluateExpression a (SubFn sub) m d n (Sub e1 e2) v = uncurry sub <$> mzip (evaluateExpression a (SubFn sub) m d n e1 v) (evaluateExpression a (SubFn sub) m d n e2 v)
+evaluateExpression a s (MulFn mul) d n (Mul e1 e2) v = uncurry mul <$> mzip (evaluateExpression a s (MulFn mul) d n e1 v) (evaluateExpression a s (MulFn mul) d n e2 v)
+evaluateExpression a s m (DivFn div) n (Div e1 e2) v = uncurry div <$> mzip (evaluateExpression a s m (DivFn div) n e1 v) (evaluateExpression a s m (DivFn div) n e2 v)
+evaluateExpression a s m d (NegFn neg) (Neg e) v = neg <$> evaluateExpression a s m d (NegFn neg) e v
+evaluateExpression a s m d n (Value val) v = Just val
+evaluateExpression a s m d n (Var var) (VariableValues vals) = lookup var vals
 
 data ExpressionParseError = MismatchedBrackets
                           | VariableFailedValidation String
-                          deriving (Show)
+                          deriving (Show, Eq)
 
 -- Tries to parse the input string as a maths expression. Returns Left in case of parse errors.
 tryParseExpression :: (Read a) => VariableNameValidator -> String -> Either ExpressionParseError (Expression a)
@@ -70,21 +101,7 @@ internalValidator st = not (null st) && all (\s -> not (s == '(' || s== ')' || s
 tryParse :: (Read a) => VariableNameValidator -> StringWithMatchingBrackets -> Either ExpressionParseError (Expression a)
 tryParse v (StringWithMatchingBrackets s) | assert (isRight $ validateBracketPairing s) False = undefined -- for debugging. Checks invariant of StringWithMatchingBrackets
 tryParse v sr = tryMakeBinaryExpression v s
-                >>= (\x -> fmap (x <|>) (tryMakeUnaryExpression v s) )
-
-
-
-
-
-                `fmap` (<|> tryReadValue s) -- todo: this is wrong!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Should try make Unary first!
-
-
-
-
-
-
-
-
+                >>= (\x -> (<|> tryReadValue s) <$> fmap (x <|>) (tryMakeUnaryExpression v s) )
                 >>= maybe (tryReadVariable v s) Right
     where s = removeEnclosingBrackets sr
 
