@@ -33,6 +33,7 @@ data Day11ParseError = UnexpectedLineCountForMonkey [String]
                      | FailedToParseMonkeyId String
                      | FailedToParseStartingItems String
                      | FailedToParseOperation OperationParseError
+                     | DivisionIsNotSupportedByPart2 String -- This is only a limitation for part 2... See below. If you only want part1, you can remove this and the test for it.
                      | FailedToParseWorryDivisibleBy String
                      | FailedToParseIfDivisibleTarget String
                      | FailedToParseIfNotDivisibleTarget String
@@ -77,7 +78,8 @@ tryParseMonkey [l1,l2,l3,l4,l5,l6] =
         tryParseInitialItems s _ = Left $ FailedToParseStartingItems s
         tryParseOperation :: String -> (Operation -> WorryDivisibleBy -> IfDivisibleTarget -> IfNotDivisibleTarget -> MonkeyStartParameters) -> Either Day11ParseError (WorryDivisibleBy -> IfDivisibleTarget -> IfNotDivisibleTarget -> MonkeyStartParameters)
         tryParseOperation (' ':' ':'O':'p':'e':'r':'a':'t':'i':'o':'n':':':' ':'n':'e':'w':' ':'=':' ':ss) ms =
-          bimap (FailedToParseOperation . MathExpressionParseError) (ms . Operation) $ tryParseExpression (VariableNameValidator ("old" ==)) ss
+          bimap (FailedToParseOperation . MathExpressionParseError) (ms . Operation) (tryParseExpression (VariableNameValidator ("old" ==)) ss)
+          >>= (\x -> if '/' `elem` ss then Left (DivisionIsNotSupportedByPart2 ss) else Right x) -- division isn't supported by part2. You can remove this if you only care about part1.
         tryParseOperation s _ = Left $ FailedToParseOperation $ UnexpectedInput s
         tryParseWorryDivisibleBy :: String -> (WorryDivisibleBy -> IfDivisibleTarget -> IfNotDivisibleTarget -> MonkeyStartParameters) -> Either Day11ParseError (IfDivisibleTarget -> IfNotDivisibleTarget -> MonkeyStartParameters)
         tryParseWorryDivisibleBy (' ':' ':'T':'e':'s':'t':':':' ':'d':'i':'v':'i':'s':'i':'b':'l':'e':' ':'b':'y':' ':ss) ms = 
@@ -123,8 +125,8 @@ findFirstNotContainedItem :: (Eq a) => [a] -> [a] -> Maybe a
 findFirstNotContainedItem (a:as) l = if a `notElem` l then Just a else findFirstNotContainedItem as l
 findFirstNotContainedItem [] _ = Nothing
 
-solveDay11Parts :: Day11Input -> (Int, ())
-solveDay11Parts = bimap solveDay11Part1 (const ()) . (\x -> (x,x))
+solveDay11Parts :: Day11Input -> (Int, Int)
+solveDay11Parts = bimap solveDay11Part1 solveDay11Part2 . (\x -> (x,x))
 
 -- The input data is rather useless for iteration.
 -- I think a quite acceptable (but still not ideal) representation is to factor out the data of each item (id, position, worry level), because that's
@@ -157,15 +159,17 @@ isMonkeyHoldingItem mid id = mid == getMonkeyIdHoldingItem id
 
 getTargetMonkeyForWorryLevel :: StaticMonkeyData -> WorryLevel -> MonkeyId
 getTargetMonkeyForWorryLevel m w = 
-  if 0 == (unWorryLevel w `rem` unWorryDivisbleBy (getMonkeyWorryDivisbleBy m)) then
+  if 0 == (unWorryLevel w `mod` unWorryDivisbleBy (getMonkeyWorryDivisbleBy m)) then
     unIfDivisibleTarget $ getMonkeyIfDivisibleTarget m
   else
     unIfNotDivisibleTarget $ getMonkeyIfNotDivisibleTarget m
 
-getWorryLevelAfterInspectItem :: StaticMonkeyData -> WorryLevel -> WorryLevel
-getWorryLevelAfterInspectItem m iwl = 
+getWorryLevelAfterInspectItemPart1 :: StaticMonkeyData -> WorryLevel -> WorryLevel
+getWorryLevelAfterInspectItemPart1 m iwl = 
   WorryLevel $ (`div` 3) . fromJust $ --fromJust is OK, we validated variable names when parsing input, and only "old" is allowed.
   evaluateIntExpression (unOperation $ getMonkeyOperation m) (VariableValues [(Variable "old", unWorryLevel iwl)]) 
+
+newtype UpdateWorryLevel = UpdateWorryLevel (StaticMonkeyData -> WorryLevel -> WorryLevel)
 
 makeItemsFromInput :: Day11Input -> Items
 makeItemsFromInput (Day11Input msp) = 
@@ -186,22 +190,22 @@ makeGameFromInput :: Day11Input -> Game
 makeGameFromInput i = Game (makeMonkeysFromInput i) (makeItemsFromInput i) (makeTurnsFromInput i)
 
 -- To get the state after a turn, we apply makeTurn on game. To get a list of all states after all turns, we can iterate over makeTurn.
-makeTurn :: Game -> Game
-makeTurn (Game m i t) = Game m (throwItems m i $ currentTurn t) $ nextTurn t
+makeTurn :: UpdateWorryLevel -> Game -> Game
+makeTurn uwl (Game m i t) = Game m (throwItems uwl m i $ currentTurn t) $ nextTurn t
 
-throwItems :: Monkeys -> Items -> MonkeyId -> Items
-throwItems m (Items i) mid = Items $ map (conditionallyThrowItem (getMonkey m mid) mid) i
+throwItems :: UpdateWorryLevel -> Monkeys -> Items -> MonkeyId -> Items
+throwItems (UpdateWorryLevel uwl) m (Items i) mid = Items $ map (conditionallyThrowItem (getMonkey m mid) mid) i
   where conditionallyThrowItem :: StaticMonkeyData -> MonkeyId -> ItemData -> ItemData
         conditionallyThrowItem _ mid i | not $ isMonkeyHoldingItem mid i = i
         conditionallyThrowItem m mid (ItemData (iid, ItemState (mhi, iwl))) = ItemData (iid, ItemState (getTargetMonkeyForWorryLevel m owl, owl))
-          where owl = getWorryLevelAfterInspectItem m iwl
+          where owl = uwl m iwl
 
 -- Needed later, to stop iteration
 getTurnsPerRoundFromGame :: Game -> Int
 getTurnsPerRoundFromGame (Game (Monkeys ms) _ _) = length ms -- cannot use turns here, turns is an infinite list... But monkeys take turns, sooo...
 
 solveDay11Part1 :: Day11Input -> Int
-solveDay11Part1 i = monkeyBusiness $ take twentyRounds $ iterate makeTurn game
+solveDay11Part1 i = monkeyBusiness $ take twentyRounds $ iterate (makeTurn $ UpdateWorryLevel getWorryLevelAfterInspectItemPart1) game
   where game :: Game
         game = makeGameFromInput i
         twentyRounds :: Int
@@ -225,3 +229,23 @@ monkeyBusiness = mulTwoBusiest . foldl countItemsPerActiveMonkey []
 -- For addition this is true: (a%c + b%c)%c = (a+b)%c
 -- For multiplication this is true: ((a%c) * (b%c))%c = (a*b)%c
 -- The hack part is, that the same trick does not work for division...
+-- There would be an inverse in Modular arithmetic, but it's not the same, and doesn't necessarily exist...
+-- Sooo, there's now a parse-error, if one of the monkeys tries to divide.
+-- Th _common_ Modulo Group between all monkeys is the one that uses the lcm of all their DivisibleBy.
+
+solveDay11Part2 :: Day11Input -> Int
+solveDay11Part2 i = monkeyBusiness $ take tenThousandRounds $ iterate (makeTurn $ UpdateWorryLevel (getWorryLevelAfterInspectItemPart2 $ getMonkeyCommonModuloGroupFromGame game)) game
+  where game :: Game
+        game = makeGameFromInput i
+        tenThousandRounds :: Int
+        tenThousandRounds = 10000 * getTurnsPerRoundFromGame game
+
+newtype MonkeyCommonModuloGroup = MonkeyCommonModuloGroup Int
+
+getMonkeyCommonModuloGroupFromGame :: Game -> MonkeyCommonModuloGroup
+getMonkeyCommonModuloGroupFromGame (Game (Monkeys ms) _ _) = MonkeyCommonModuloGroup $ foldl lcm 1 $ map (unWorryDivisbleBy . getMonkeyWorryDivisbleBy . snd) ms
+
+getWorryLevelAfterInspectItemPart2 :: MonkeyCommonModuloGroup -> StaticMonkeyData -> WorryLevel -> WorryLevel
+getWorryLevelAfterInspectItemPart2 (MonkeyCommonModuloGroup moGr) m iwl = 
+  WorryLevel $ (`mod` moGr) . fromJust $ -- fromJust is OK, we validated variable names when parsing input, and only "old" is allowed.
+  evaluateIntExpression (unOperation $ getMonkeyOperation m) (VariableValues [(Variable "old", unWorryLevel iwl)]) 
