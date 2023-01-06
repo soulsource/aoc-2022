@@ -219,3 +219,9 @@ monkeyBusiness = mulTwoBusiest . foldl countItemsPerActiveMonkey []
                 incrementCountForMonkey [] mid = [(mid,1)]
                 incrementCountForMonkey ((m, i):as) mid | m == mid = (m,i+1):as
                 incrementCountForMonkey (a:as) mid = a:incrementCountForMonkey as mid
+
+
+-- Part 2... Is a hack. It relies on the fact that all tests done by monkeys are "if foo divisible by bar", and that monkeys can only add and multiply.
+-- For addition this is true: (a%c + b%c)%c = (a+b)%c
+-- For multiplication this is true: ((a%c) * (b%c))%c = (a*b)%c
+-- The hack part is, that the same trick does not work for division...
